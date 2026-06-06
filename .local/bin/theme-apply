@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+# theme-apply — read ~/.config/theme.conf and apply it everywhere.
+#
+# Fans one declarative file out to all the places Linux scatters theming:
+#   GTK3, GTK4, Qt (qt6ct), dconf (libadwaita), the X cursor, and the wallpaper.
+# Edit theme.conf, run this. That's the whole system.
+set -euo pipefail
+
+CONF="${XDG_CONFIG_HOME:-$HOME/.config}/theme.conf"
+[ -r "$CONF" ] || { echo "theme-apply: $CONF not found" >&2; exit 1; }
+
+# ── read a key from theme.conf (trims whitespace, expands a leading ~) ──
+get() {
+  local v; v="$(sed -n "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*//p" "$CONF" | head -n1)"
+  v="${v%"${v##*[![:space:]]}"}"          # rstrip
+  printf '%s' "${v/#\~/$HOME}"
+}
+
+WALLPAPER="$(get wallpaper)"
+UI_THEME="$(get ui_theme)"
+ICONS="$(get icon_theme)"
+CURSOR="$(get cursor)"
+CURSOR_SIZE="$(get cursor_size)"
+FONT="$(get font)"
+
+# split "Hack 10" -> family="Hack" size="10"  (size = trailing number, if any)
+FONT_SIZE="${FONT##* }"; FONT_FAMILY="$FONT"
+[[ "$FONT_SIZE" =~ ^[0-9]+$ ]] && FONT_FAMILY="${FONT% *}" || FONT_SIZE=10
+
+mkdir -p "$HOME/.config/gtk-3.0" "$HOME/.config/gtk-4.0" "$HOME/.config/qt6ct" "$HOME/.icons/default"
+
+# ─────────────────────────────────────────────────────────── GTK 3 & 4
+gtk_ini() { cat <<EOF
+[Settings]
+gtk-theme-name=$UI_THEME
+gtk-icon-theme-name=$ICONS
+gtk-cursor-theme-name=$CURSOR
+gtk-cursor-theme-size=$CURSOR_SIZE
+gtk-font-name=$FONT
+gtk-application-prefer-dark-theme=true
+gtk-decoration-layout=icon:minimize,maximize,close
+gtk-enable-animations=true
+gtk-primary-button-warps-slider=true
+gtk-xft-antialias=1
+gtk-xft-hinting=1
+gtk-xft-hintstyle=hintslight
+EOF
+}
+gtk_ini > "$HOME/.config/gtk-3.0/settings.ini"
+gtk_ini > "$HOME/.config/gtk-4.0/settings.ini"
+
+# ─────────────────────────────────────────────────────────────── Qt
+# GTK theme names don't map to Qt styles; use Breeze + a dark palette + the font.
+cat > "$HOME/.config/qt6ct/qt6ct.conf" <<EOF
+[Appearance]
+color_scheme_path=/usr/share/qt6ct/colors/darker.conf
+custom_palette=true
+standard_dialogs=gtk3
+style=Breeze
+
+[Fonts]
+fixed="$FONT_FAMILY,$FONT_SIZE,-1,5,400,0,0,0,0,0,0,0,0,0,0,1"
+general="$FONT_FAMILY,$FONT_SIZE,-1,5,400,0,0,0,0,0,0,0,0,0,0,1"
+
+[Interface]
+activate_item_on_single_click=1
+menus_have_icons=true
+EOF
+
+# ──────────────────────────────────────────────── dconf (libadwaita/GTK4)
+if command -v gsettings >/dev/null; then
+  i() { gsettings set org.gnome.desktop.interface "$1" "$2"; }
+  i gtk-theme "$UI_THEME"; i icon-theme "$ICONS"; i cursor-theme "$CURSOR"
+  i cursor-size "$CURSOR_SIZE"; i font-name "$FONT"; i color-scheme 'prefer-dark'
+  [ -f "$WALLPAPER" ] && gsettings set org.gnome.desktop.background picture-uri "file://$WALLPAPER" || true
+fi
+
+# ──────────────────────────────────────────── cursor for X11 root + apps
+cat > "$HOME/.icons/default/index.theme" <<EOF
+[Icon Theme]
+Name=Default
+Inherits=$CURSOR
+EOF
+
+# ─────────────────────────────────────────────────────────── wallpaper
+if [ ! -f "$WALLPAPER" ]; then
+  echo "theme-apply: wallpaper not found: $WALLPAPER" >&2
+elif [ "${XDG_SESSION_TYPE:-}" = wayland ] || pgrep -x Hyprland >/dev/null 2>&1; then
+  # Hyprland owns the (multi-monitor) wallpaper render; reload re-reads theme.conf.
+  command -v hyprctl >/dev/null && hyprctl reload >/dev/null 2>&1 || true
+  command -v hyprctl >/dev/null && hyprctl setcursor "$CURSOR" "$CURSOR_SIZE" >/dev/null 2>&1 || true
+else
+  command -v feh >/dev/null && feh --bg-fill --no-xinerama "$WALLPAPER" || true
+fi
+
+echo "theme-apply: $UI_THEME / $ICONS / $CURSOR ${CURSOR_SIZE} / $FONT"
