@@ -17,7 +17,8 @@ get() {
 }
 
 WALLPAPER="$(get wallpaper)"
-UI_THEME="$(get ui_theme)"
+GTK_THEME="$(get gtk_theme)"
+QT_STYLE="$(get qt_style)"
 ICONS="$(get icon_theme)"
 CURSOR="$(get cursor)"
 CURSOR_SIZE="$(get cursor_size)"
@@ -32,7 +33,7 @@ mkdir -p "$HOME/.config/gtk-3.0" "$HOME/.config/gtk-4.0" "$HOME/.config/qt6ct" "
 # ─────────────────────────────────────────────────────────── GTK 3 & 4
 gtk_ini() { cat <<EOF
 [Settings]
-gtk-theme-name=$UI_THEME
+gtk-theme-name=$GTK_THEME
 gtk-icon-theme-name=$ICONS
 gtk-cursor-theme-name=$CURSOR
 gtk-cursor-theme-size=$CURSOR_SIZE
@@ -50,13 +51,14 @@ gtk_ini > "$HOME/.config/gtk-3.0/settings.ini"
 gtk_ini > "$HOME/.config/gtk-4.0/settings.ini"
 
 # ─────────────────────────────────────────────────────────────── Qt
-# GTK theme names don't map to Qt styles; use Breeze + a dark palette + the font.
+# GTK theme names don't map to Qt styles; use qt_style + a dark palette + the font.
 cat > "$HOME/.config/qt6ct/qt6ct.conf" <<EOF
 [Appearance]
 color_scheme_path=/usr/share/qt6ct/colors/darker.conf
 custom_palette=true
+icon_theme=$ICONS
 standard_dialogs=gtk3
-style=Breeze
+style=$QT_STYLE
 
 [Fonts]
 fixed="$FONT_FAMILY,$FONT_SIZE,-1,5,400,0,0,0,0,0,0,0,0,0,0,1"
@@ -70,7 +72,7 @@ EOF
 # ──────────────────────────────────────────────── dconf (libadwaita/GTK4)
 if command -v gsettings >/dev/null; then
   i() { gsettings set org.gnome.desktop.interface "$1" "$2"; }
-  i gtk-theme "$UI_THEME"; i icon-theme "$ICONS"; i cursor-theme "$CURSOR"
+  i gtk-theme "$GTK_THEME"; i icon-theme "$ICONS"; i cursor-theme "$CURSOR"
   i cursor-size "$CURSOR_SIZE"; i font-name "$FONT"; i color-scheme 'prefer-dark'
   [ -f "$WALLPAPER" ] && gsettings set org.gnome.desktop.background picture-uri "file://$WALLPAPER" || true
 fi
@@ -93,4 +95,4 @@ else
   command -v feh >/dev/null && feh --bg-fill --no-xinerama "$WALLPAPER" || true
 fi
 
-echo "theme-apply: $UI_THEME / $ICONS / $CURSOR ${CURSOR_SIZE} / $FONT"
+echo "theme-apply: gtk=$GTK_THEME qt=$QT_STYLE icons=$ICONS cursor=$CURSOR/$CURSOR_SIZE font=$FONT"

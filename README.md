@@ -8,12 +8,18 @@ Edit **`~/.config/theme.conf`**:
 
 ```ini
 wallpaper   = ~/Pictures/wallpapers/art.jpg
-ui_theme    = Graphite-Dark
+gtk_theme   = Graphite-Dark
+qt_style    = Breeze
 icon_theme  = breeze-dark
 cursor      = catppuccin-latte-peach-cursors
 cursor_size = 24
 font        = Hack 10
 ```
+
+`gtk_theme` and `qt_style` are separate because a GTK theme name can't be used
+by Qt. Installed `qt_style` options: Breeze, Oxygen, Fusion, Windows. To make Qt
+actually match a GTK theme, install `kvantum` + the theme's Kvantum variant and
+set `qt_style = kvantum-dark`. The icon theme and font are shared across both.
 
 Then run:
 
