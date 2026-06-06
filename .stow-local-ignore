@@ -1,0 +1,5 @@
+# Files/dirs that live in the package but must NOT be stowed into $HOME.
+\.git
+^/install\.sh$
+^/README\.md$
+^/etc(/.*)?$

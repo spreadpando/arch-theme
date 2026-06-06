@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# theme-dconf-sync — derive the GTK/libadwaita dconf surface from GTK3 settings.ini.
+#
+# settings.ini is the single source of truth. libadwaita/GTK4 apps and Flatpaks
+# ignore settings.ini and read org.gnome.desktop.interface from dconf via the
+# portal, so we mirror the relevant keys here. Run at login by the
+# theme-dconf.service systemd user unit (launch-independent: once set, every
+# app reads it however it's launched).
+set -euo pipefail
+
+INI="${XDG_CONFIG_HOME:-$HOME/.config}/gtk-3.0/settings.ini"
+[ -r "$INI" ] || { echo "theme-dconf-sync: $INI not found" >&2; exit 0; }
+
+# read a key from the [Settings] section, trimming whitespace around '='
+ini() { sed -n "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*//p" "$INI" | head -n1; }
+
+theme=$(ini gtk-theme-name)
+icons=$(ini gtk-icon-theme-name)
+cursor=$(ini gtk-cursor-theme-name)
+csize=$(ini gtk-cursor-theme-size)
+font=$(ini gtk-font-name)
+dark=$(ini gtk-application-prefer-dark-theme)
+
+set_key() { [ -n "$2" ] && gsettings set org.gnome.desktop.interface "$1" "$2"; }
+
+set_key gtk-theme    "$theme"
+set_key icon-theme   "$icons"
+set_key cursor-theme "$cursor"
+set_key font-name    "$font"
+[ -n "$csize" ] && gsettings set org.gnome.desktop.interface cursor-size "$csize"
+
+case "${dark,,}" in
+  true|1|yes) gsettings set org.gnome.desktop.interface color-scheme 'prefer-dark' ;;
+  *)          gsettings set org.gnome.desktop.interface color-scheme 'default' ;;
+esac
+
+echo "theme-dconf-sync: applied theme='$theme' icons='$icons' cursor='$cursor' (${csize:-?}) dark='${dark:-?}'"
