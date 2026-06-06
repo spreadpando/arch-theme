@@ -1,64 +1,129 @@
 #!/usr/bin/env bash
-# install.sh — set up the `theme` dotfiles package on a fresh machine.
+# install.sh — set up the `theme` dotfiles package. Idempotent & re-runnable.
 #
-#   1. install packaged theme deps (pacman)
-#   2. fetch the hand-installed assets that no package owns (best-effort)
-#   3. stow the config into ~
-#   4. install the SDDM drop-in into /etc (needs sudo)
-#   5. enable the login-time dconf sync (systemd user service)
+# Manage dependencies by editing the two arrays below:
+#   PACMAN_PKGS : official-repo packages (installed with --needed)
+#   REPOS       : hand-installed themes/cursors that no package owns
 #
-# Idempotent: re-running skips anything already present.
+# Usage:
+#   ./install.sh              install/sync everything (skips what's present)
+#   ./install.sh --force      also reinstall assets that already exist
+#   ./install.sh --no-assets  skip the REPOS step (config/stow/sddm/service only)
+#   ./install.sh --no-sddm    skip writing the /etc SDDM drop-in
 set -euo pipefail
+
+# ───────────────────────────────────────────── dependencies (edit these)
+PACMAN_PKGS=(
+  stow
+  xsettingsd
+  qt6ct
+  breeze-icons          # provides the breeze-dark icon theme
+)
+
+# Format: "name|kind|git-url|build"
+#   kind  : theme | icon | sddm   — decides where presence is checked / removed
+#   build : command run *inside the fresh clone*, or the literal MANUAL to just
+#           print a reminder (for assets whose build isn't verified yet)
+REPOS=(
+  "Graphite-Dark|theme|https://github.com/vinceliuice/Graphite-gtk-theme.git|./install.sh -c dark"
+  "catppuccin-latte-peach-cursors|icon|https://github.com/catppuccin/cursors.git|MANUAL"
+  "silent|sddm|https://github.com/uiriansan/SilentSDDM.git|MANUAL"
+)
+
+# ───────────────────────────────────────────── internals
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DOTFILES="$(dirname "$HERE")"
+FORCE=0 DO_ASSETS=1 DO_SDDM=1
+for a in "$@"; do case "$a" in
+  --force)     FORCE=1 ;;
+  --no-assets) DO_ASSETS=0 ;;
+  --no-sddm)   DO_SDDM=0 ;;
+  -h|--help)   sed -n '2,12p' "$0"; exit 0 ;;
+  *) echo "unknown arg: $a (try --help)" >&2; exit 2 ;;
+esac; done
 
-say()  { printf '\033[1;36m::\033[0m %s\n' "$*"; }
-warn() { printf '\033[1;33mWARN\033[0m %s\n' "$*"; }
+c()    { printf '\033[1;%sm%s\033[0m' "$1" "$2"; }
+say()  { printf '%s %s\n' "$(c 36 '::')" "$*"; }
+ok()   { printf '%s %s\n' "$(c 32 ' ✓')" "$*"; }
+warn() { printf '%s %s\n' "$(c 33 ' !')" "$*" >&2; }
+die()  { printf '%s %s\n' "$(c 31 '✗✗')" "$*" >&2; exit 1; }
+need() { command -v "$1" >/dev/null || die "required tool '$1' not found"; }
 
-# ---------------------------------------------------------------- 1. packages
-PKGS=(stow xsettingsd qt6ct breeze-icons)   # breeze-icons provides the breeze-dark icon theme
-say "Installing packages: ${PKGS[*]}"
-sudo pacman -S --needed --noconfirm "${PKGS[@]}" || warn "pacman step failed; install ${PKGS[*]} manually"
+# where each kind installs to (used for presence checks and --force removal)
+asset_roots() { # kind -> prints candidate dirs
+  case "$1" in
+    theme) printf '%s\n' "/usr/share/themes" "$HOME/.themes" "$HOME/.local/share/themes" ;;
+    icon)  printf '%s\n' "/usr/share/icons"  "$HOME/.icons"  "$HOME/.local/share/icons"  ;;
+    sddm)  printf '%s\n' "/usr/share/sddm/themes" ;;
+    *) die "unknown asset kind: $1" ;;
+  esac
+}
+asset_present() { local r; while read -r r; do [ -d "$r/$1" ] && return 0; done < <(asset_roots "$2"); return 1; }
 
-# ----------------------------------------------------- 2. hand-installed assets
-# These are not in any pacman package. URLs are best-effort — verify upstream
-# if a fetch fails; the rest of the setup still works with fallbacks.
-have_theme() { [ -d "/usr/share/themes/$1" ] || [ -d "$HOME/.themes/$1" ]; }
-have_icons() { [ -d "/usr/share/icons/$1" ] || [ -d "$HOME/.icons/$1" ] || [ -d "$HOME/.local/share/icons/$1" ]; }
-have_sddm()  { [ -d "/usr/share/sddm/themes/$1" ]; }
+# ───────────────────────────────────────────── steps
+install_packages() {
+  need pacman
+  say "Packages: ${PACMAN_PKGS[*]}"
+  sudo pacman -S --needed --noconfirm "${PACMAN_PKGS[@]}"
+  ok "packages present"
+}
 
-if ! have_theme Graphite-Dark; then
-  say "Fetching Graphite-Dark GTK theme (vinceliuice)"
-  tmp=$(mktemp -d)
-  if git clone --depth 1 https://github.com/vinceliuice/Graphite-gtk-theme.git "$tmp"; then
-    ( cd "$tmp" && ./install.sh -c dark ) || warn "Graphite install.sh failed"
-  else warn "could not clone Graphite-gtk-theme"; fi
-  rm -rf "$tmp"
-else say "Graphite-Dark already present"; fi
+install_assets() {
+  need git
+  local tmp; tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' RETURN   # auto-clean clones
+  local entry name kind url build r
+  for entry in "${REPOS[@]}"; do
+    IFS='|' read -r name kind url build <<<"$entry"
+    [ -n "$name" ] || continue
 
-if ! have_icons catppuccin-latte-peach-cursors; then
-  warn "Cursor 'catppuccin-latte-peach-cursors' missing — fetch the latte/peach"
-  warn "variant from https://github.com/catppuccin/cursors/releases and extract"
-  warn "into ~/.local/share/icons/ (left as a manual step; verify the exact name)"
-else say "catppuccin-latte-peach-cursors already present"; fi
+    if asset_present "$name" "$kind"; then
+      if [ "$FORCE" -eq 0 ]; then ok "$name already installed"; continue; fi
+      say "Removing existing $name (--force)"
+      while read -r r; do
+        [ -d "$r/$name" ] || continue
+        case "$r" in /usr/*) sudo rm -rf "${r:?}/${name:?}" ;; *) rm -rf "${r:?}/${name:?}" ;; esac
+      done < <(asset_roots "$kind")
+    fi
 
-if ! have_sddm silent; then
-  warn "SDDM theme 'silent' missing — install from"
-  warn "https://github.com/uiriansan/SilentSDDM (per its README) before relying on it"
-else say "SDDM theme 'silent' already present"; fi
+    if [ "$build" = MANUAL ]; then
+      warn "$name: not auto-built yet — install manually from $url"
+      continue
+    fi
 
-# ----------------------------------------------------------------- 3. stow
-say "Stowing theme -> $HOME"
-( cd "$DOTFILES" && stow theme )
+    say "Installing $name from $url"
+    git clone --depth 1 "$url" "$tmp/$name" || { warn "clone failed: $url"; continue; }
+    ( cd "$tmp/$name" && eval "$build" )    || { warn "build failed: $name"; continue; }
+    asset_present "$name" "$kind" && ok "$name installed" \
+      || warn "$name: build ran but not found in expected location"
+  done
+}
 
-# ---------------------------------------------------------------- 4. SDDM /etc
-say "Installing SDDM drop-in to /etc/sddm.conf.d/zz-theme.conf"
-sudo install -Dm644 "$HERE/etc/sddm.conf.d/zz-theme.conf" /etc/sddm.conf.d/zz-theme.conf
+do_stow() {
+  need stow
+  say "Stowing theme -> \$HOME (restow: adds new, prunes stale links)"
+  ( cd "$DOTFILES" && stow -R theme )
+  ok "stowed"
+}
 
-# ------------------------------------------------------- 5. dconf sync service
-say "Enabling theme-dconf.service (login-time dconf sync)"
-systemctl --user daemon-reload
-systemctl --user enable --now theme-dconf.service
+install_sddm() {
+  local src="$HERE/etc/sddm.conf.d/zz-theme.conf" dst=/etc/sddm.conf.d/zz-theme.conf
+  if [ -f "$dst" ] && cmp -s "$src" "$dst"; then ok "SDDM drop-in up to date"; return; fi
+  say "Installing SDDM drop-in -> $dst"
+  sudo install -Dm644 "$src" "$dst"
+  ok "SDDM drop-in installed (theme=silent)"
+}
 
-say "Done. Qt apps also need QT_QPA_PLATFORMTHEME=qt6ct in your session env"
-say "(set in ~/.xprofile for X11/i3 and hyprland env for Wayland)."
+enable_service() {
+  say "Enabling theme-dconf.service (login-time dconf sync)"
+  systemctl --user daemon-reload
+  systemctl --user enable --now theme-dconf.service
+  ok "dconf sync enabled"
+}
+
+# ───────────────────────────────────────────── run
+install_packages
+if [ "$DO_ASSETS" -eq 1 ]; then install_assets; else warn "skipping assets (--no-assets)"; fi
+do_stow
+if [ "$DO_SDDM" -eq 1 ]; then install_sddm; else warn "skipping SDDM drop-in (--no-sddm)"; fi
+enable_service
+say "$(c 32 'All done.') Qt env (QT_QPA_PLATFORMTHEME=qt6ct) takes effect on next login."
