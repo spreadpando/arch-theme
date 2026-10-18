@@ -8,6 +8,7 @@ Edit **`~/.config/theme.conf`**:
 
 ```ini
 wallpaper   = ~/Pictures/wallpapers/art.jpg
+wallpaper_speed = 1
 gtk_theme   = Graphite-Dark
 qt_style    = Breeze
 icon_theme  = breeze-dark
@@ -15,6 +16,10 @@ cursor      = catppuccin-latte-peach-cursors
 cursor_size = 24
 font        = Hack 10
 ```
+
+`wallpaper` can also be a video (`.mp4`/`.mkv`/`.webm`/`.mov`) — on Hyprland it's
+cropped per monitor with ffmpeg and played by mpvpaper. `wallpaper_speed` is the
+playback rate for that case (`0.1` = slow-mo); it's ignored for images and on i3.
 
 `gtk_theme` and `qt_style` are separate because a GTK theme name can't be used
 by Qt. Installed `qt_style` options: Breeze, Oxygen, Fusion, Windows. To make Qt
