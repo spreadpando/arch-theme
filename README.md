@@ -4,7 +4,8 @@ One file for your whole look, applied to both i3 and Hyprland.
 
 ## Use it
 
-Edit **`~/.config/theme.conf`**:
+Edit **`~/.config/theme.conf`**. It's yours and not in git: `theme-apply` creates it
+from `theme.default.conf` on first run. For example:
 
 ```ini
 wallpaper   = ~/Pictures/wallpapers/art.jpg
@@ -15,7 +16,15 @@ icon_theme  = breeze-dark
 cursor      = catppuccin-latte-peach-cursors
 cursor_size = 24
 font        = Hack 10
+display_font = Lilex Nerd Font
+bar_font    = Lilex Nerd Font
 ```
+
+`display_font` is for big decorative text (the hyprlock clock). `bar_font` is
+for small accent text: waybar, notification titles (dunst) and the rofi
+launcher's mode buttons. Only the family is set here; sizes stay in each app's
+config. The fonts themselves must be installed (`~/.local/share/fonts` or
+`/usr/local/share/fonts`).
 
 `wallpaper` can also be a video (`.mp4`/`.mkv`/`.webm`/`.mov`) — on Hyprland it's
 cropped per monitor with ffmpeg and played by mpvpaper. `wallpaper_speed` is the
@@ -44,6 +53,10 @@ Linux scatters theming across a dozen files; `theme-apply` writes them all from
 - dconf via `gsettings` (libadwaita / GTK4 / Flatpak apps)
 - `~/.icons/default/index.theme` (X11 cursor)
 - the wallpaper (feh on i3, Hyprland's renderer on Wayland)
+- accent fonts: `hypr/hyprlock-fonts.conf` (`$accent` clock, `$bar` date and
+  password field), plus
+  `waybar/theme-fonts.css`, `rofi/theme-fonts.rasi` and
+  `dunst/dunstrc.d/50-theme-fonts.conf`, which those apps' configs import
 
 It runs automatically at i3 startup; Hyprland reads the wallpaper path from
 `theme.conf` directly. The Qt env var `QT_QPA_PLATFORMTHEME=qt6ct` lives in
